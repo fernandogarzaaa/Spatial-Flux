@@ -66,11 +66,37 @@ Dependencies are OpenCV (`opencv-python-headless`), FastAPI, httpx, and pydantic
 
 ---
 
+## Region-Level Motion Localization
+
+The local drift evaluator is not limited to a single global drift scalar. On every frame after the
+first, `LocalSpatialEvaluator` also computes a set of **drift regions**: bounding boxes over the
+areas of the frame where motion actually occurred, in addition to the existing frame-wide
+`drift_score`.
+
+This works by taking the same grayscale absolute-difference mask used for the scalar score,
+dilating it slightly (`cv2.dilate`) to merge nearby scattered motion pixels into coherent blobs,
+then running `cv2.findContours` over the result to recover bounding boxes. Boxes below a
+configurable minimum area ratio are dropped as noise, and the surviving boxes are returned sorted
+largest-first, capped at a configurable maximum count.
+
+`POST /v1/spatial/ingest` includes these as a `drift_regions` list, each entry shaped as
+`{"x", "y", "width", "height", "area_ratio"}` (an empty list on the first frame, where there is no
+baseline to diff against).
+
+**Scope, honestly stated:** this is classical, deterministic computer vision — a frame-difference
+mask plus contour analysis — running fully offline with no model weights. It tells you *where*
+something changed in the frame. It has no idea *what* changed: it cannot tell a person from a box
+from a shadow, and it does not classify, recognize, or track objects across frames. True
+object detection/classification (e.g. a YOLO-class model) remains a roadmap item, not something
+this repository currently does or claims to do.
+
+---
+
 ## Roadmap / Not Yet Implemented
 
 The following are real, intended directions for this project — none of them are built yet:
 
-- **Actual object/scene-level perception at the edge.** Today's detector is a global pixel-diff drift score; it has no notion of objects, classes, or bounding boxes. A local model (e.g. a lightweight YOLO or RT-DETR variant) would let the edge triage on *what* changed, not just *how much*.
+- **Object/scene-level classification at the edge.** Region localization (above) already reports *where* motion happened as bounding boxes. What's still missing is *what* changed: a local model (e.g. a lightweight YOLO or RT-DETR variant) to classify content within those regions.
 - **Temporal scene graphs.** Tracking entities and their relationships across frames is not implemented. Drift is computed frame-to-frame with no persistent state beyond the ring buffer.
 - **GStreamer / zero-copy ingestion pipeline.** Frames currently arrive as HTTP multipart uploads and are decoded with OpenCV; there is no RTSP/GStreamer capture path or shared-memory/zero-copy frame handoff.
 - **Multi-endpoint / adaptive routing.** Dispatch currently targets a single configured cloud endpoint; routing to multiple destinations based on frame content is not implemented.

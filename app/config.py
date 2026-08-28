@@ -48,6 +48,24 @@ class Settings(BaseSettings):
         le=100,
         description="JPEG compression quality used for anomaly frame routing.",
     )
+    MIN_DRIFT_REGION_AREA_RATIO: float = Field(
+        default=0.002,
+        ge=0.0,
+        le=1.0,
+        description="Minimum bounding-box area ratio for a drift region to be kept.",
+    )
+    MAX_DRIFT_REGIONS: int = Field(
+        default=8,
+        ge=1,
+        le=100,
+        description="Maximum number of drift regions returned per frame.",
+    )
+    DRIFT_REGION_DILATE_ITERATIONS: int = Field(
+        default=2,
+        ge=0,
+        le=20,
+        description="Dilation iterations applied to the binary delta before contour detection.",
+    )
 
     @field_validator("CLOUD_VLA_ENDPOINT_URL")
     @classmethod
