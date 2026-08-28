@@ -68,12 +68,24 @@ async def ingest_spatial_frame(file: Annotated[UploadFile, File(...)]) -> dict[s
         _, current_frame, ingest_timestamp = latest_record
         if baseline_record is None:
             drift_score = 0.0
+            drift_regions: list[dict[str, Any]] = []
         else:
             _, baseline_frame, _ = baseline_record
-            drift_score = await spatial_evaluator.compute_structural_drift(
+            drift_evaluation = await spatial_evaluator.compute_drift(
                 current_frame=current_frame,
                 baseline_frame=baseline_frame,
             )
+            drift_score = drift_evaluation.drift_score
+            drift_regions = [
+                {
+                    "x": region.x,
+                    "y": region.y,
+                    "width": region.width,
+                    "height": region.height,
+                    "area_ratio": region.area_ratio,
+                }
+                for region in drift_evaluation.regions
+            ]
 
         dispatch_response = await cloud_router.route_spatial_payload(
             frame_id=frame_id,
@@ -104,6 +116,7 @@ async def ingest_spatial_frame(file: Annotated[UploadFile, File(...)]) -> dict[s
             "frame_id": frame_id,
             "ingest_timestamp": ingest_timestamp,
             "drift_score": drift_score,
+            "drift_regions": drift_regions,
             "dispatch": dispatch_response,
         }
     except FrameDecodeError as exc:
