@@ -6,6 +6,8 @@ import hmac
 import ipaddress
 import logging
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Annotated, Any
 from uuid import uuid4
@@ -23,15 +25,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+frame_buffer = AsyncFrameBuffer()
+spatial_evaluator = LocalSpatialEvaluator()
+cloud_router = CloudVLARouter()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Close outbound cloud resources during server shutdown."""
+    yield
+    await cloud_router.aclose()
+
+
 app = FastAPI(
     title="SpatialFlux",
     version="1.0.0",
     description="Edge-to-cloud video streaming ingestion and perception fabric.",
+    lifespan=lifespan,
 )
-
-frame_buffer = AsyncFrameBuffer()
-spatial_evaluator = LocalSpatialEvaluator()
-cloud_router = CloudVLARouter()
 
 
 @dataclass(slots=True)
@@ -47,12 +58,6 @@ class PipelineTelemetry:
 
 
 telemetry = PipelineTelemetry()
-
-
-@app.on_event("shutdown")
-async def shutdown_router() -> None:
-    """Close outbound cloud resources during server shutdown."""
-    await cloud_router.aclose()
 
 
 def _is_loopback(host: str | None) -> bool:
