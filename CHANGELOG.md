@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-13
+
+First tagged release.
+
+### Changed
+
+- Shutdown cleanup of the cloud VLA client moved from the deprecated `@app.on_event("shutdown")` hook to a FastAPI lifespan handler (no behaviour change; removes the deprecation warning).
+
 ### Security
 
 - Ingest race fixed: `AsyncFrameBuffer.push_frame` now returns `(previous, stored)` read atomically under the buffer lock, so concurrent uploads can no longer compute drift on another request's frame or upload the wrong image under a frame id.
