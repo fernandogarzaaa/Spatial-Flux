@@ -22,8 +22,8 @@ This is a straightforward, working frame-diff drift detector — not object or s
 
 Accepts a single image file upload (`multipart/form-data`, field name `file`). On each call the service:
 
-1. Reads the current latest buffered frame as the baseline (if any).
-2. Decodes and stores the new frame in the ring buffer.
+1. Rejects uploads larger than `MAX_UPLOAD_BYTES` with `413`.
+2. Decodes and stores the new frame in the ring buffer and, under the same lock, takes the frame that was newest just before it as the baseline (so concurrent uploads cannot swap baselines or frames).
 3. Computes a drift score against the baseline (`0.0` if this is the first frame).
 4. Dispatches the result to the configured cloud endpoint (metadata-only for nominal frames, full JPEG for anomalies).
 
@@ -46,6 +46,9 @@ Settings are environment-backed (via `pydantic-settings`, loaded from the proces
 | `CLOUD_VLA_ENDPOINT_URL` | `http://127.0.0.1:9000/v1/vla/commands` | The cloud endpoint that receives nominal-frame metadata and anomaly-frame JPEG uploads. |
 | `MAX_BUFFER_FRAMES` | `90` | Maximum number of decoded frames retained in the ring buffer. |
 | `EDGE_COMPRESSION_QUALITY` | `80` | JPEG quality (1–100) used when re-encoding anomaly frames for upload. |
+| `MAX_UPLOAD_BYTES` | `10485760` | Largest accepted frame upload in bytes; larger uploads get `413` and are never buffered in full. |
+| `API_KEY` | (empty) | Shared secret for `/v1/spatial/ingest` and `/v1/spatial/telemetry`, sent as `X-API-Key: <key>` or `Authorization: Bearer <key>`. When empty, only loopback clients (127.0.0.1 / ::1) are served. |
+| `ALLOW_UNAUTHENTICATED` | `false` | Serve non-loopback clients without a key. Only for a trusted, isolated network. Ignored when `API_KEY` is set. |
 
 ## Running locally
 
