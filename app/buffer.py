@@ -34,7 +34,11 @@ class BufferedFrame:
 
 
 class AsyncFrameBuffer:
-    """Thread-safe async ring buffer for decoded camera frames."""
+    """Ring buffer for decoded camera frames.
+
+    Safe for concurrent asyncio tasks on one event loop (asyncio.Lock); not
+    a thread-safe structure.
+    """
 
     def __init__(self, max_frames: int | None = None) -> None:
         self._frames: deque[BufferedFrame] = deque(maxlen=max_frames or settings.MAX_BUFFER_FRAMES)
@@ -57,22 +61,30 @@ class AsyncFrameBuffer:
         """Return the latest decode-and-store latency in seconds."""
         return self._last_ingest_latency_seconds
 
-    async def push_frame(self, frame_id: str, frame_bytes: bytes) -> None:
-        """Decode encoded image bytes and append the frame to the bounded buffer."""
+    async def push_frame(
+        self, frame_id: str, frame_bytes: bytes
+    ) -> tuple[BufferedFrame | None, BufferedFrame]:
+        """Decode image bytes and append the frame to the bounded buffer.
+
+        Returns ``(previous, stored)`` read under the same lock as the append:
+        ``previous`` is the frame that was newest just before this one (the
+        drift baseline), ``stored`` is this frame. Reading them separately
+        would race with concurrent uploads.
+        """
         start = time.perf_counter()
         try:
             frame = await asyncio.to_thread(self._decode_frame, frame_bytes)
             ingest_timestamp = time.time_ns() / 1_000_000_000
+            stored = BufferedFrame(
+                frame_id=frame_id,
+                frame=frame,
+                ingest_timestamp=ingest_timestamp,
+            )
             async with self._lock:
+                previous = self._frames[-1] if self._frames else None
                 if len(self._frames) == self._frames.maxlen:
                     self._dropped_frames += 1
-                self._frames.append(
-                    BufferedFrame(
-                        frame_id=frame_id,
-                        frame=frame,
-                        ingest_timestamp=ingest_timestamp,
-                    )
-                )
+                self._frames.append(stored)
                 self._last_ingest_latency_seconds = time.perf_counter() - start
             logger.info(
                 "frame_ingested",
@@ -82,6 +94,7 @@ class AsyncFrameBuffer:
                     "latency_seconds": self._last_ingest_latency_seconds,
                 },
             )
+            return previous, stored
         except FrameDecodeError:
             logger.exception("frame_decode_failed", extra={"frame_id": frame_id})
             raise
