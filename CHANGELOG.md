@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Ingest race fixed: `AsyncFrameBuffer.push_frame` now returns `(previous, stored)` read atomically under the buffer lock, so concurrent uploads can no longer compute drift on another request's frame or upload the wrong image under a frame id.
+- Upload size limit (`MAX_UPLOAD_BYTES`, default 10 MiB): oversized frames get `413` and are not read fully into memory.
+- API-key gate (`API_KEY`, `X-API-Key` or Bearer) on ingest and telemetry; without a key only loopback clients are served unless `ALLOW_UNAUTHENTICATED=true`.
+
 ### Added
 
 - `uv.lock` pinning the full dependency graph.

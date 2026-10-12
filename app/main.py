@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import hmac
+import ipaddress
 import logging
 import time
 from dataclasses import dataclass
 from typing import Annotated, Any
 from uuid import uuid4
 
-from fastapi import FastAPI, File, HTTPException, UploadFile, status
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, status
 
 from app.buffer import AsyncFrameBuffer, FrameDecodeError
+from app.config import settings
 from app.detector import LocalSpatialEvaluator
 from app.dispatch import CloudVLARouter
 
@@ -52,25 +55,70 @@ async def shutdown_router() -> None:
     await cloud_router.aclose()
 
 
-@app.post("/v1/spatial/ingest")
+def _is_loopback(host: str | None) -> bool:
+    try:
+        return host is not None and ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def require_api_key(request: Request) -> None:
+    """Gate ingest/telemetry.
+
+    With API_KEY set, every request must present it (``X-API-Key`` or
+    ``Authorization: Bearer``). Without a key, only loopback clients are served
+    unless ALLOW_UNAUTHENTICATED is explicitly enabled.
+    """
+    key = settings.API_KEY
+    if key:
+        presented = request.headers.get("x-api-key", "")
+        auth = request.headers.get("authorization", "")
+        if not presented and auth.lower().startswith("bearer "):
+            presented = auth[7:].strip()
+        if hmac.compare_digest(presented.encode(), key.encode()):
+            return
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid API key")
+    if settings.ALLOW_UNAUTHENTICATED:
+        return
+    client = request.client.host if request.client else None
+    if _is_loopback(client):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="API_KEY is not configured; only loopback clients are allowed",
+    )
+
+
+async def _read_limited(file: UploadFile, limit: int) -> bytes:
+    """Read at most ``limit`` bytes; 413 if the upload is larger."""
+    if file.size is not None and file.size > limit:
+        raise HTTPException(
+            status_code=413,
+            detail=f"frame exceeds {limit} bytes",
+        )
+    data = await file.read(limit + 1)
+    if len(data) > limit:
+        raise HTTPException(
+            status_code=413,
+            detail=f"frame exceeds {limit} bytes",
+        )
+    return data
+
+
+@app.post("/v1/spatial/ingest", dependencies=[Depends(require_api_key)])
 async def ingest_spatial_frame(file: Annotated[UploadFile, File(...)]) -> dict[str, Any]:
     """Ingest a camera frame, evaluate drift, and route the payload to the cloud fabric."""
     frame_id = f"frame-{uuid4()}"
     start = time.perf_counter()
     try:
-        baseline_record = await frame_buffer.get_latest_frame()
-        frame_bytes = await file.read()
-        await frame_buffer.push_frame(frame_id, frame_bytes)
-        latest_record = await frame_buffer.get_latest_frame()
-        if latest_record is None:
-            raise RuntimeError("frame buffer did not retain the uploaded frame")
-
-        _, current_frame, ingest_timestamp = latest_record
+        frame_bytes = await _read_limited(file, settings.MAX_UPLOAD_BYTES)
+        baseline_record, stored = await frame_buffer.push_frame(frame_id, frame_bytes)
+        current_frame, ingest_timestamp = stored.frame, stored.ingest_timestamp
         if baseline_record is None:
             drift_score = 0.0
             drift_regions: list[dict[str, Any]] = []
         else:
-            _, baseline_frame, _ = baseline_record
+            baseline_frame = baseline_record.frame
             drift_evaluation = await spatial_evaluator.compute_drift(
                 current_frame=current_frame,
                 baseline_frame=baseline_frame,
@@ -119,6 +167,9 @@ async def ingest_spatial_frame(file: Annotated[UploadFile, File(...)]) -> dict[s
             "drift_regions": drift_regions,
             "dispatch": dispatch_response,
         }
+    except HTTPException:
+        telemetry.total_failed_frames += 1
+        raise
     except FrameDecodeError as exc:
         telemetry.total_failed_frames += 1
         raise HTTPException(
@@ -141,7 +192,7 @@ async def ingest_spatial_frame(file: Annotated[UploadFile, File(...)]) -> dict[s
         ) from exc
 
 
-@app.get("/v1/spatial/telemetry")
+@app.get("/v1/spatial/telemetry", dependencies=[Depends(require_api_key)])
 async def get_spatial_telemetry() -> dict[str, Any]:
     """Return current ingestion, dispatch, and latency telemetry."""
     try:

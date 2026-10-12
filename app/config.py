@@ -67,6 +67,24 @@ class Settings(BaseSettings):
         description="Dilation iterations applied to the binary delta before contour detection.",
     )
 
+    MAX_UPLOAD_BYTES: int = Field(
+        default=10 * 1024 * 1024,
+        ge=1024,
+        le=512 * 1024 * 1024,
+        description="Maximum size of one uploaded frame in bytes (larger uploads get 413).",
+    )
+    API_KEY: str = Field(
+        default="",
+        description=(
+            "Shared secret for the ingest/telemetry endpoints (X-API-Key or Bearer). "
+            "When empty, only loopback clients are served unless ALLOW_UNAUTHENTICATED is true."
+        ),
+    )
+    ALLOW_UNAUTHENTICATED: bool = Field(
+        default=False,
+        description="Serve non-loopback clients without an API key (trusted networks only).",
+    )
+
     @field_validator("CLOUD_VLA_ENDPOINT_URL")
     @classmethod
     def validate_cloud_endpoint(cls, value: str) -> str:
