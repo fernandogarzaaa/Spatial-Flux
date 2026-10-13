@@ -39,7 +39,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(
     title="SpatialFlux",
-    version="1.0.0",
+    version="1.0.1",
     description="Edge-to-cloud video streaming ingestion and perception fabric.",
     lifespan=lifespan,
 )

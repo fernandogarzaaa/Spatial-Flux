@@ -120,7 +120,18 @@ class AsyncFrameBuffer:
         if not frame_bytes:
             raise FrameDecodeError("empty frame payload cannot be decoded")
         encoded_buffer = np.frombuffer(frame_bytes, dtype=np.uint8)
-        decoded = cv2.imdecode(encoded_buffer, cv2.IMREAD_COLOR)
+        try:
+            decoded = cv2.imdecode(encoded_buffer, cv2.IMREAD_COLOR)
+        except cv2.error as exc:
+            # OpenCV refuses images above OPENCV_IO_MAX_IMAGE_PIXELS this way.
+            raise FrameDecodeError(
+                f"frame could not be decoded (larger than {settings.MAX_FRAME_PIXELS} pixels?)"
+            ) from exc
         if decoded is None:
             raise FrameDecodeError("OpenCV could not decode frame payload")
+        height, width = decoded.shape[:2]
+        if height * width > settings.MAX_FRAME_PIXELS:
+            raise FrameDecodeError(
+                f"frame is {width}x{height}; limit is {settings.MAX_FRAME_PIXELS} pixels"
+            )
         return cast(FrameArray, decoded)

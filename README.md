@@ -47,6 +47,7 @@ Settings are environment-backed (via `pydantic-settings`, loaded from the proces
 | `MAX_BUFFER_FRAMES` | `90` | Maximum number of decoded frames retained in the ring buffer. |
 | `EDGE_COMPRESSION_QUALITY` | `80` | JPEG quality (1–100) used when re-encoding anomaly frames for upload. |
 | `MAX_UPLOAD_BYTES` | `10485760` | Largest accepted frame upload in bytes; larger uploads get `413` and are never buffered in full. |
+| `MAX_FRAME_PIXELS` | `33177600` | Largest decoded frame (width x height, default 8K UHD). A small compressed file can declare a huge canvas, so larger frames are refused with `400` before they reach the buffer. |
 | `API_KEY` | (empty) | Shared secret for `/v1/spatial/ingest` and `/v1/spatial/telemetry`, sent as `X-API-Key: <key>` or `Authorization: Bearer <key>`. When empty, only loopback clients (127.0.0.1 / ::1) are served. |
 | `ALLOW_UNAUTHENTICATED` | `false` | Serve non-loopback clients without a key. Only for a trusted, isolated network. Ignored when `API_KEY` is set. |
 

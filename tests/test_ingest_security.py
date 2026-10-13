@@ -254,3 +254,40 @@ def test_telemetry_counters_after_ingest(monkeypatch: pytest.MonkeyPatch) -> Non
     assert 0.0 <= t.last_frame_latency_seconds < 30.0
     body = c.get("/v1/spatial/telemetry").json()
     assert body["total_processed_frames_count"] == 2
+
+
+# -- decoded frame size (decompression bombs) ----------------------------------
+def test_frame_above_pixel_limit_rejected_and_not_buffered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "MAX_FRAME_PIXELS", 64 * 64)
+    with _client() as c:
+        r = _ingest(c, _png(10, size=65))
+        assert r.status_code == 400
+        assert "limit" in r.json()["detail"]
+        assert main.frame_buffer.retained_frames == 0
+        assert _ingest(c, _png(10, size=64)).status_code == 200
+    assert len(ROUTED) == 1
+
+
+def test_opencv_pixel_cap_applied_on_import() -> None:
+    # A ~270 KB PNG declaring 16000x16000 must be refused by the decoder
+    # itself (via OPENCV_IO_MAX_IMAGE_PIXELS), not decoded into ~770 MB.
+    import os
+    import subprocess
+    import sys
+
+    code = (
+        "import app, cv2, numpy as np\n"
+        "from app.buffer import AsyncFrameBuffer, FrameDecodeError\n"
+        "ok, b = cv2.imencode('.png', np.zeros((16000, 16000), np.uint8))\n"
+        "try:\n"
+        "    AsyncFrameBuffer._decode_frame(bytes(b))\n"
+        "except FrameDecodeError:\n"
+        "    print('refused')\n"
+    )
+    env = {k: v for k, v in os.environ.items() if k != "OPENCV_IO_MAX_IMAGE_PIXELS"}
+    out = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=120, env=env
+    )
+    assert out.stdout.strip() == "refused", out.stderr
