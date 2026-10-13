@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-13
+
+### Fixed
+- Decompression bomb on `POST /v1/spatial/ingest`: a ~270 KB PNG declaring
+  16000x16000 pixels passed the 10 MB upload cap, decoded to ~770 MB and was
+  kept in the 90-frame buffer (server RSS 70 MB -> 840 MB from one request).
+  Decoded frames are now capped by `MAX_FRAME_PIXELS` (default 8K UHD), enforced
+  by OpenCV's own decode limit plus a post-decode check, and refused with
+  `400` without being buffered.
+- An image OpenCV refused to decode surfaced as `502 failed to push frame`
+  instead of a `400` client error.
+
 ## [1.0.0] - 2026-10-13
 
 First tagged release.

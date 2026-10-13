@@ -73,6 +73,15 @@ class Settings(BaseSettings):
         le=512 * 1024 * 1024,
         description="Maximum size of one uploaded frame in bytes (larger uploads get 413).",
     )
+    MAX_FRAME_PIXELS: int = Field(
+        default=7680 * 4320,
+        ge=1,
+        le=1 << 30,
+        description=(
+            "Maximum decoded frame size in pixels (width x height, default 8K UHD). "
+            "Small compressed uploads can declare huge canvases; larger frames get 400."
+        ),
+    )
     API_KEY: str = Field(
         default="",
         description=(
